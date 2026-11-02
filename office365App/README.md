@@ -17,7 +17,9 @@ Each supported polling operation owns one directory under `operations/<operation
 
 The shared `function_app.py` dynamically discovers sorted `operations/*/function.py` files with `importlib.util.spec_from_file_location`, requires each exported `blueprint`, and registers it with `FunctionApp`. A full checkout loads all five functions. A downstream or sparse template copy can retain one or more operation directories and the loader will register only those functions.
 
-The post-deploy scripts discover the retained `trigger-config.json` files in the same deterministic order. Each config contains the connector name, operation ID, function name, description, and parameters. The scripts validate every config, resolve `valueFrom` entries from `azd env get-values --output json`, and delete/recreate only retained triggers. They preserve the Connector Namespace OAuth/consent flow and polling metadata (`recurrenceFrequency:Minute` and `recurrenceInterval:'5'`).
+The post-deploy scripts discover the retained `trigger-config.json` files in the same deterministic order. Each config contains the connector name, operation ID, function name, description, and parameters. Before changing triggers, the scripts validate the complete retained set, resolve `valueFrom` entries from `azd env get-values --output json`, and complete the Connector Namespace OAuth flow. Each retained trigger replacement is retried up to three times; failures are collected so the final error names every incomplete operation while successful operations remain configured. Re-run `azd hooks run postdeploy` after correcting a partial failure. Polling metadata remains `recurrenceFrequency:Minute` with `recurrenceInterval:'5'`.
+
+A sparse first deployment creates only the retained operations. The script intentionally does not delete Azure trigger configs for operation directories that are no longer present, because it cannot prove those remote resources are safe to remove. Delete an old trigger explicitly when narrowing an already-deployed app.
 
 The root [`template-metadata.json`](../template-metadata.json) records the exact operation-to-function mapping and one-element POSIX `ownedPaths` contract for downstream copying. Template tooling must copy the shared loader/scripts and the selected `operations/<operationId>/` directories together with the metadata contract.
 
@@ -27,7 +29,7 @@ The root [`template-metadata.json`](../template-metadata.json) records the exact
 ## Prerequisites
 
 - [Azure Developer CLI (`azd`)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
-- [Azure CLI (`az`)](https://learn.microsoft.com/cli/azure/install-azure-cli) >= 2.75.0
+- [Azure CLI (`az`)](https://learn.microsoft.com/cli/azure/install-azure-cli) 2.75.0 or later
 - [Python 3.13](https://www.python.org/downloads/)
 - [`connector-namespace` Azure CLI extension](https://github.com/Azure/Connectors/tree/main/public-preview/connector-namespace-cli) - install with:
 

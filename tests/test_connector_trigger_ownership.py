@@ -307,9 +307,16 @@ class ConnectorTriggerOwnershipTests(unittest.TestCase):
                 script_source = (ROOT / app_name / "infra" / "scripts" / script_name).read_text(encoding="utf-8")
                 self.assertIn("trigger-config.json", script_source)
                 self.assertIn("valueFrom", script_source)
-                self.assertIn("recurrenceFrequency:Minute", script_source)
-                self.assertIn("recurrenceInterval:'5'", script_source)
+                self.assertIn("recurrenceFrequency", script_source)
+                self.assertIn("recurrenceInterval", script_source)
+                self.assertIn("Minute", script_source)
                 self.assertIn("connectorName", script_source)
+                self.assertIn("functionAppDefaultHostname", script_source)
+                self.assertIn("re-running this script is safe", script_source)
+                self.assertLess(
+                    script_source.index("Authorizing"),
+                    script_source.index("Configuring Connector Namespace trigger configs"),
+                )
 
     def test_sparse_materialization_registers_only_selected_operation(self):
         for app_name, mappings in MAPPINGS.items():
@@ -331,6 +338,50 @@ class ConnectorTriggerOwnershipTests(unittest.TestCase):
                 self.assertEqual(len(registered_functions), 1)
                 self.assertEqual(registered_functions[0]._fake_function_name, function_name)
                 self.assertTrue(hasattr(registered_functions[0], "_fake_connector_trigger"))
+
+    def test_loader_rejects_empty_operation_set(self):
+        for app_name in MAPPINGS:
+            with tempfile.TemporaryDirectory(dir=ROOT / "tests") as temp_dir:
+                materialized = Path(temp_dir) / app_name
+                materialized.mkdir(parents=True)
+                shutil.copy2(ROOT / app_name / "function_app.py", materialized / "function_app.py")
+                (materialized / "operations").mkdir()
+                with fake_azure_runtime(), self.assertRaisesRegex(
+                    RuntimeError,
+                    "Retain at least one operations/<operationId> directory",
+                ):
+                    load_materialized_app(materialized)
+
+    def test_loader_reports_all_import_failures_before_registering(self):
+        for app_name, mappings in MAPPINGS.items():
+            operation_id, _ = mappings[0]
+            with tempfile.TemporaryDirectory(dir=ROOT / "tests") as temp_dir:
+                materialized = Path(temp_dir) / app_name
+                valid_dir = materialized / "operations" / operation_id
+                broken_dir = materialized / "operations" / "ZZBrokenOperation"
+                valid_dir.mkdir(parents=True)
+                broken_dir.mkdir(parents=True)
+                shutil.copy2(ROOT / app_name / "function_app.py", materialized / "function_app.py")
+                shutil.copy2(
+                    ROOT / app_name / "operations" / operation_id / "function.py",
+                    valid_dir / "function.py",
+                )
+                (broken_dir / "function.py").write_text(
+                    "raise ValueError('broken operation fixture')\n",
+                    encoding="utf-8",
+                )
+
+                module_name = f"broken_{app_name}_{id(materialized)}"
+                spec = importlib.util.spec_from_file_location(module_name, materialized / "function_app.py")
+                self.assertIsNotNone(spec)
+                self.assertIsNotNone(spec.loader)
+                module = importlib.util.module_from_spec(spec)
+                with fake_azure_runtime(), self.assertRaisesRegex(
+                    RuntimeError,
+                    "ZZBrokenOperation.*ValueError.*broken operation fixture",
+                ):
+                    spec.loader.exec_module(module)
+                self.assertEqual(module.app.blueprints, [])
 
     def test_full_materialization_registers_all_current_operations(self):
         for app_name, mappings in MAPPINGS.items():

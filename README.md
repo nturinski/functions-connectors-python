@@ -63,9 +63,17 @@ Eight self-contained Azure Functions apps, each deployable with `azd up`:
 
 The shared `function_app.py` is a compatibility loader. It discovers `operations/*/function.py` in sorted order, imports each exported `blueprint`, and registers it with the Functions app. A full checkout therefore loads all five Office 365 triggers and both SharePoint triggers. Downstream template consumers can retain only the operation directories they need: the same loader then registers only those retained functions.
 
-The post-deploy hooks use the retained `trigger-config.json` files as their source of truth. They validate and sort the configs, resolve any `valueFrom` names through `azd env get-values --output json`, delete/recreate only the retained Connector Namespace triggers, and keep the existing OAuth consent flow and five-minute polling metadata. Removing an operation directory from a downstream copy removes that function and its post-deploy trigger without changing Bicep or `azure.yaml` behavior.
+The post-deploy hooks use the retained `trigger-config.json` files as their source of truth. Before changing Azure resources, they validate every config, reject duplicate operation/function/parameter names, resolve all `valueFrom` names through `azd env get-values --output json`, and complete the connector OAuth flow. They then replace only the retained Connector Namespace triggers, retry each Azure mutation up to three times, and report every failed operation while leaving successful operations configured. Re-running the hook is safe after a partial failure. Callback URLs use the deployed `functionAppDefaultHostname` when available and fall back to the legacy `<functionAppName>.azurewebsites.net` form for existing azd environments.
 
-Root `template-metadata.json` is the machine-readable downstream copy contract. Its `connectorTrigger.operations[]` entries map each connector operation to its function name and one-element POSIX `ownedPaths` value. Template tooling must copy the shared app files plus the selected owned paths and preserve the metadata entry when materializing a sparse template.
+Root `template-metadata.json` is the machine-readable downstream copy contract. Its `connectorTrigger.operations[]` entries map each connector operation to its function name and one-element POSIX `ownedPaths` value. Template tooling must copy the shared app files plus the selected owned paths and preserve the metadata entry when materializing a sparse template. A sparse first deployment creates only retained triggers. Deliberately removing an operation from an app that was already deployed does not prune its existing Azure trigger automatically; delete that trigger explicitly to avoid removing resources the script cannot prove it owns.
+
+Rollback is file-based and non-destructive: restore the previous monolithic `function_app.py` and post-deploy scripts, or revert the migration commits. Function names, operation IDs, trigger names, parameter defaults, Bicep outputs, and hook paths remain compatible, so no data migration or Azure resource rename is required.
+
+Validate the ownership contract, sparse/full loader behavior, config resolution, OAuth ordering, retries, and partial-failure reporting with the standard library test suite (the script tests use local fake CLI commands and do not access Azure):
+
+```bash
+python -m unittest discover -s tests -v
+```
 
 ## What each sample shows
 
