@@ -1,6 +1,6 @@
 # Azure Functions connectors samples (Python)
 
-This repository contains Python samples that show how to use the new **Connector Namespace** integration with Azure Functions. Each sample lives in its own folder so you can clone, deploy, and explore independently with a single `azd up`.
+This repository contains Python samples that show how to use the new **Connector Namespace** integration with Azure Functions. Each sample lives in its own folder. The Office 365 and SharePoint project-template sources retain one selected operation before running or deployment.
 
 > [!NOTE]
 > Connectors in Azure Functions are in **public preview**. The Connector Namespace is currently available in **West Central US (`westcentralus`)**; your function app can be deployed in any region that supports the chosen hosting plan. See the [overview](https://learn.microsoft.com/azure/azure-functions/) for details.
@@ -30,14 +30,14 @@ This repository contains Python samples that show how to use the new **Connector
 
 Azure Functions integrates with the managed connectors platform that backs Logic Apps and Power Platform, giving your functions:
 
-- **Connector triggers** — a function runs when an event occurs in an external service (new email in Office 365, file added to SharePoint or OneDrive, message posted to Microsoft Teams, and many more). The runtime exposes a `connector_trigger` binding that receives webhook callbacks from the Connector Namespace.
+- **Connector triggers** — a function runs when an event occurs in an external service (new email in Office 365, file added to SharePoint or OneDrive, message posted to Microsoft Teams, and many more). The runtime exposes a `connector_trigger` binding that supports host-pull Poll delivery and webhook callbacks.
 - **Connector SDK actions** — function code calls connector operations through strongly-typed clients or through dynamic payload models for any connector.
 
-The connector platform handles webhook registration, OAuth flows, token refresh, and retry — you focus on the business logic.
+The connector platform handles polling or webhook delivery, OAuth flows, token refresh, and retry — you focus on the business logic.
 
 ## Getting-started samples
 
-Eight self-contained Azure Functions apps, each deployable with `azd up`:
+Eight Azure Functions sample roots. Office 365 and SharePoint become deployable after one operation is retained:
 
 | App | Connector | Triggers demonstrated |
 |---|---|---|
@@ -55,7 +55,6 @@ Eight self-contained Azure Functions apps, each deployable with `azd up`:
 | Package | Role |
 |---|---|
 | [`azure-functions`](https://pypi.org/project/azure-functions/) | The Functions Python worker. Provides `@app.connector_trigger` decorator and the broader bindings surface. |
-| [`azurefunctions-extensions-connectors`](https://pypi.org/project/azurefunctions-extensions-connectors/) | Rich SDK types for Office 365 connector triggers (`ClientReceiveMessage`, `GraphClientReceiveMessage`, `GraphCalendarEventClientReceive`). Used by `office365App`. |
 
 ## What each sample shows
 
@@ -71,17 +70,9 @@ A single function `OnDataverseRowChanged` that fires when a new row is **added**
 
 `OnKustoQueryResult` runs whenever the configured Kusto query produces a non-empty result. Each row is accessible from the parsed JSON payload.
 
-### `office365App` — Office 365 Outlook (with rich SDK types)
+### `office365App` — Office 365 Outlook
 
-Five Outlook triggers using the `azurefunctions-extensions-connectors` package for rich type hints:
-
-| Function | Type | Fires when… |
-|---|---|---|
-| `OnNewEmail` | `List[ClientReceiveMessage]` | A new email lands in the watched mailbox / folder |
-| `OnFlaggedEmail` | `List[GraphClientReceiveMessage]` | An email is flagged (follow-up) |
-| `OnNewMentionMeEmail` | `List[GraphClientReceiveMessage]` | A new email @-mentions the connection identity |
-| `OnNewCalendarEvent` | `List[GraphCalendarEventClientReceive]` | A new calendar event is created |
-| `OnUpcomingEvent` | `List[GraphCalendarEventClientReceive]` | A calendar event is about to start |
+Five operation-owned Poll templates. Each `operations/<operationId>` directory contains one `function.py` and one `trigger-config.json`; project creation retains the selected directory and removes its siblings.
 
 ### `onedriveApp` — OneDrive for Business
 
@@ -89,7 +80,7 @@ Five Outlook triggers using the `azurefunctions-extensions-connectors` package f
 
 ### `sharepointApp` — SharePoint Online
 
-`OnSharepointNewFile` and `OnSharepointUpdatedFile`. Both parse the payload to extract file metadata.
+Two operation-owned Poll templates for `OnSharepointNewFile` and `OnSharepointUpdatedFile`. Their descriptors resolve the SharePoint site and library from `azd` outputs.
 
 ### `teamsApp` — Microsoft Teams
 
@@ -116,21 +107,26 @@ Demonstrates the generic API that works for any Azure Logic Apps connector — i
 
 ## How a trigger function looks
 
-### With rich SDK types (Office 365)
+### Batched Poll delivery
 
 ```python
 import azure.functions as func
-import azurefunctions.extensions.connectors.office365 as office365
 from typing import List
 
-app = func.FunctionApp()
+bp = func.Blueprint()
 
-@app.function_name(name="OnNewEmail")
-@app.connector_trigger(arg_name="emails")
-def on_new_email(emails: List[office365.ClientReceiveMessage]) -> None:
-    for email in emails:
-        logging.info(f"Subject: '{email.subject}'.")
-        logging.info(f"From: '{email.from_}'.")
+@bp.function_name(name="OnNewEmail")
+@bp.connector_trigger(
+    arg_name="payloads",
+    delivery_mode=func.DeliveryMode.POLL,
+    connection="ConnectorNamespace",
+    trigger_config_name="%ConnectorTriggerConfigName%",
+    cardinality=func.Cardinality.MANY,
+    max_batch_size=4,
+    target_pending_event_threshold=16,
+)
+def on_new_email(payloads: List[str]) -> None:
+    logging.info("Received %s Poll event(s).", len(payloads))
 ```
 
 ### Generic: string payload (any connector)
@@ -161,7 +157,7 @@ pip install -r requirements.txt
 func start
 ```
 
-Update `local.settings.json` with the runtime URL and access token for your connector before starting. The keys differ per connector (e.g. `Office365Connection` / `OFFICE365_TOKEN`, `TeamsConnection` / `TEAMS_TOKEN`).
+For an Office 365 or SharePoint Poll template, update `local.settings.json` with `ConnectorNamespace__pollingEndpoint` and `ConnectorTriggerConfigName`. Other samples retain their connector-specific settings.
 
 ## Deploy a sample to Azure
 
@@ -171,49 +167,53 @@ azd auth login
 azd up
 ```
 
-`azd up` provisions a resource group containing:
+Depending on the selected sample, `azd up` provisions resources such as:
 
 - Azure Storage account (Function App backing store).
-- Flex Consumption Function App (Python 3.13) with system-assigned managed identity.
+- Flex Consumption Function App (Python 3.13) with managed identity.
 - Application Insights + Log Analytics workspace.
+- Connector Namespace, connection, and required access policies.
 
-It then runs the `prepackage` hook (`pip install -r requirements.txt`) and deploys the Python code.
-
-After provisioning, configure the connector runtime URL and token:
-
-```bash
-azd env set CONNECTOR_RUNTIME_URL '<your-connector-runtime-url>'
-azd env set CONNECTOR_TOKEN '<your-token>'
-azd provision   # re-runs the Bicep to push the new app settings
-```
+For Office 365 and SharePoint, the post-deploy hook completes OAuth consent,
+creates one Poll Trigger Config from the retained descriptor, and configures the
+Function App's Poll endpoint and Trigger Config name. Follow each sample's README
+for its operation inputs and deployment details.
 
 ## Repository layout
 
 ```
 functions-connectors-python/
 ├── README.md
-├── azureblobAppPython/
-├── kustoAppPython/
-├── office365AppPython/
-├── onedriveAppPython/
-├── sharepointAppPython/
-├── teamsAppPython/
-└── genericAppPython/
+├── azureblobApp/
+├── dataverseApp/
+├── genericApp/
+├── kustoApp/
+├── office365App/
+├── onedriveApp/
+├── sharepointApp/
+└── teamsApp/
 ```
 
-Each app folder is self-contained:
+Office 365 and SharePoint use this operation-owned shape:
 
 ```
-<connectorAppPython>/
-├── function_app.py             # Python v2 programming model entry point
-├── requirements.txt            # Python dependencies
+<connectorApp>/
+├── function_app.py             # neutral blueprint discovery and registration
+├── operations/
+│   └── <operationId>/
+│       ├── function.py         # complete selected Function registration
+│       └── trigger-config.json # complete selected deployment descriptor
+├── shared/                     # operation-neutral loader and Poll helpers
+├── requirements.txt
 ├── infra/
-│   ├── main.bicep              # subscription-scope: creates RG, delegates to resources.bicep
-│   ├── resources.bicep         # Storage + App Insights + Function App
-│   └── main.parameters.json    # ${AZURE_ENV_NAME}, ${AZURE_LOCATION}, ${CONNECTOR_RUNTIME_URL=}, ${CONNECTOR_TOKEN=}
-├── azure.yaml                  # azd service definition + prepackage hook
-├── host.json                   # Preview extension bundle + logging
-├── local.settings.json         # placeholders for runtime URL + token
+│   ├── main.bicep
+│   ├── connectorNamespace.bicep
+│   └── scripts/
+│       ├── postdeploy.ps1
+│       └── postdeploy.sh
+├── azure.yaml
+├── host.json
+├── local.settings.json
 └── README.md
 ```
 
@@ -222,4 +222,4 @@ Each app folder is self-contained:
 | Repo | Purpose |
 |---|---|
 | [Azure/connectors-python-SDK](https://github.com/Azure/connectors-python-SDK) | `azure-connectors` — generated Python SDK for Azure Connectors. |
-| [Azure/azure-functions-python-extensions](https://github.com/Azure/azure-functions-python-extensions) | `azurefunctions-extensions-connectors` — the binding extension consumed by these samples. |
+| [Azure/azure-functions-connector-extension](https://github.com/Azure/azure-functions-connector-extension) | Connector trigger host extension, Poll configuration, and operation mapping documentation. |

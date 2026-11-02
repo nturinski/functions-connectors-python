@@ -1,39 +1,58 @@
-# Office 365 Outlook Triggers (Python)
+# Office 365 Outlook Poll triggers (Python)
 
-Azure Functions sample app demonstrating **Office 365 Outlook** connector triggers using the
-`azurefunctions-extensions-connectors` package with the Functions connector trigger extension.
+Azure Functions project-template source for Office 365 Outlook Connector Namespace
+triggers using host-pull **Poll** delivery.
 
-| Function | Connector operation | Description |
+## Operation ownership
+
+Each selectable operation owns its complete source and deployment descriptor:
+
+| Owned path | Function | Connector operation |
 | --- | --- | --- |
-| `OnNewEmail` | [`OnNewEmailV3`](https://learn.microsoft.com/en-us/connectors/office365/#when-a-new-email-arrives-(v3)) | Fires when a new email arrives |
-| `OnFlaggedEmail` | [`OnFlaggedEmailV4`](https://learn.microsoft.com/en-us/connectors/office365/#when-an-email-is-flagged-(v4)) | Fires when an email is flagged |
-| `OnNewMentionMeEmail` | [`OnNewMentionMeEmailV3`](https://learn.microsoft.com/en-us/connectors/office365/#when-a-new-email-mentioning-me-arrives-(v3)) | Fires when a new email mentions the authenticated user |
-| `OnNewCalendarEvent` | [`CalendarGetOnNewItemsV3`](https://learn.microsoft.com/en-us/connectors/office365/#when-a-new-event-is-created-(v3)) | Fires when a new calendar event is created |
-| `OnUpcomingEvent` | [`OnUpcomingEventsV3`](https://learn.microsoft.com/en-us/connectors/office365/#when-an-upcoming-event-is-starting-soon-(v3)) | Fires when an upcoming calendar event is starting soon |
+| `operations/OnNewEmailV3` | `OnNewEmail` | `OnNewEmailV3` |
+| `operations/OnFlaggedEmailV4` | `OnFlaggedEmail` | `OnFlaggedEmailV4` |
+| `operations/OnNewMentionMeEmailV3` | `OnNewMentionMeEmail` | `OnNewMentionMeEmailV3` |
+| `operations/CalendarGetOnNewItemsV3` | `OnNewCalendarEvent` | `CalendarGetOnNewItemsV3` |
+| `operations/OnUpcomingEventsV3` | `OnUpcomingEvent` | `OnUpcomingEventsV3` |
 
-> [!CAUTION]
-> **Personal data.** This sample writes email/calendar content to Blob Storage for demonstration only. Restrict access to the resources to appropriate users only, and run `azd down --purge` when done.
+The project-template materializer retains one whole operation directory and removes
+its siblings. If you use this repository directly, delete every unselected
+`operations/<operationId>` directory before running or deploying the app.
+`function_app.py` and the post-deploy scripts intentionally fail unless exactly one
+`trigger-config.json` remains.
+
+The retained operation registers one `typing.List[str]` Poll binding with:
+
+- `connection="ConnectorNamespace"`
+- `trigger_config_name="%ConnectorTriggerConfigName%"`
+- `cardinality=func.Cardinality.MANY`
+- `max_batch_size=4`
+- `target_pending_event_threshold=16`
+
+Each string is one raw Poll event. The shared normalizer unwraps
+`outputs.body`, including `{ "value": [...] }` collection bodies, without logging
+message or calendar contents.
 
 ## Prerequisites
 
 - [Azure Developer CLI (`azd`)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
-- [Azure CLI (`az`)](https://learn.microsoft.com/cli/azure/install-azure-cli) ≥ 2.75.0
+- [Azure CLI (`az`)](https://learn.microsoft.com/cli/azure/install-azure-cli) 2.75.0 or later
 - [Python 3.13](https://www.python.org/downloads/)
-- [`connector-namespace` Azure CLI extension](https://github.com/Azure/Connectors/tree/main/public-preview/connector-namespace-cli) — install with:
+- [`connector-namespace` Azure CLI extension](https://github.com/Azure/Connectors/tree/main/public-preview/connector-namespace-cli)
 
-  ```bash
-  # Bash
-  curl -fsSL https://aka.ms/connector-namespace-cli-install | sh
-  ```
+Install the Connector Namespace extension with one of:
 
-  or
+```bash
+curl -fsSL https://aka.ms/connector-namespace-cli-install | sh
+```
 
-  ```pwsh
-  # PowerShell
-  irm https://aka.ms/connector-namespace-cli-install-ps | iex
-  ```
+```pwsh
+irm https://aka.ms/connector-namespace-cli-install-ps | iex
+```
 
-## Deploy to Azure
+## Deploy
+
+After retaining one operation:
 
 ```bash
 cd office365App
@@ -42,68 +61,49 @@ az login
 azd up
 ```
 
-### Resources provisioned
+The post-deploy hook:
 
-| Resource | Purpose |
-| --- | --- |
-| **Resource Group** | Contains all resources |
-| **Flex Consumption Function App** (Python 3.13) | Hosts the 5 connector trigger functions |
-| **App Service Plan** (FC1) | Flex Consumption plan |
-| **User-Assigned Managed Identity** | Identity for the function app |
-| **Storage Account** | Deployment artifacts, function runtime state, and trigger payload output |
-| **Log Analytics Workspace** | Backing store for Application Insights |
-| **Application Insights** | Telemetry and logging |
-| **Connector Namespace** | Hosts the Office 365 connection and trigger configs |
-| **Office 365 Outlook Connection** (OAuth) | Authenticates to Office 365 — requires interactive consent during post-deploy |
+1. authorizes the Office 365 connection through OAuth consent;
+2. reads the retained operation descriptor;
+3. creates or updates one enabled Poll Trigger Config through the
+   `2026-05-01-preview` ARM API;
+4. derives the gateway-level polling endpoint returned by the service; and
+5. sets `ConnectorNamespace__pollingEndpoint` and
+   `ConnectorTriggerConfigName` on the Function App.
 
-After provisioning, a post-deploy hook authorizes the Office 365 connection and creates trigger configs. To re-run:
+It does not create a callback URL, webhook notification, or callback key.
+Re-run only this setup with:
 
 ```bash
 azd hooks run postdeploy
 ```
 
-### Trigger configuration
+The deployment grants the Connector Namespace identity permission to run the
+connector trigger and grants the Function App identity permission to receive and
+acknowledge Poll events. The deployer also receives connection access for local
+debugging.
 
-The post-deploy script configures the `OnNewEmail` trigger with these defaults:
+## Run locally
 
-| Setting | Value |
-| ------- | ----- |
-| `operationName` | `OnNewEmailV3` |
-| `folderPath` | `Inbox` |
-| `importance` | `High` |
+Install dependencies and replace the placeholders in `local.settings.json` with
+the gateway-level Poll endpoint and Trigger Config name produced by deployment:
 
-Edit `infra/scripts/postdeploy.ps1` (or `.sh`) to change folder, importance, or add trigger configs for the other functions.
-
-## Rich SDK Types
-
-This sample uses the `azurefunctions-extensions-connectors` package which provides rich type hints:
-
-```python
-import azurefunctions.extensions.connectors.office365 as office365
-from typing import List
-
-@app.connector_trigger(arg_name="emails")
-def on_new_email(emails: List[office365.ClientReceiveMessage]) -> None:
-    for email in emails:
-        print(f"Subject: {email.subject}")
-        print(f"From: {email.from_}")
+```bash
+python -m pip install -r requirements.txt
+func start
 ```
+
+For local development, omit `ConnectorNamespace__credential`; the extension uses
+the signed-in developer credential. Never commit a real polling endpoint or
+credential.
 
 ## Verify
 
-After `azd up`, open the [Connector Namespaces portal](https://connectors.azure.com/) to verify:
-
-- One **Connection** (Office 365 Outlook) with status **Connected**
-- Trigger configs in **Enabled** state
-
-Send yourself a high-importance email to fire the trigger. Tail logs with:
-
-```bash
-az functionapp log tail -g <resourceGroupName> -n <functionAppName>
-```
+In Connector Namespace, verify that the retained Trigger Config is enabled. Cause
+the selected Outlook event, then inspect the Function App logs for event and item
+counts.
 
 ## More
 
-- [Operations to Functions Signature Mapping](https://github.com/Azure/azure-functions-connector-extension/blob/main/docs/operations-functions-match.md)
-- [Office 365 Outlook connector reference](https://learn.microsoft.com/en-us/connectors/office365/)
-- [Built-in auth sample](https://github.com/Azure-Samples/functions-connectors-net-builtinauth) — secretless authentication using managed identity + Easy Auth.
+- [Connector trigger configuration](https://github.com/Azure/azure-functions-connector-extension/blob/main/docs/connector-trigger-configuration.md)
+- [Office 365 Outlook connector reference](https://learn.microsoft.com/connectors/office365/)

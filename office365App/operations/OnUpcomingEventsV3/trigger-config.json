@@ -1,0 +1,12 @@
+{
+  "functionName": "OnUpcomingEvent",
+  "connectorName": "office365",
+  "operationName": "OnUpcomingEventsV3",
+  "description": "When an upcoming event is starting soon",
+  "parameters": [
+    {
+      "name": "table",
+      "value": "Calendar"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "functionName": "OnFlaggedEmail",
+  "connectorName": "office365",
+  "operationName": "OnFlaggedEmailV4",
+  "description": "When an email is flagged",
+  "parameters": [
+    {
+      "name": "folderPath",
+      "value": "Inbox"
+    }
+  ]
+}

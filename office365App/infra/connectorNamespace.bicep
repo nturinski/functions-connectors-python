@@ -2,6 +2,10 @@ param name string
 param location string
 param tags object = {}
 param connectionName string
+@description('Object (principal) ID of the function app user-assigned MI. Granted access to the connection for Poll receive and acknowledge calls.')
+param functionAppPrincipalId string
+@description('Optional. AAD object ID of a developer to grant access for local Poll debugging with Azure credentials.')
+param userPrincipalId string = ''
 param tenantId string = tenant().tenantId
 
 resource connectorNamespace 'Microsoft.Web/connectorGateways@2026-05-01-preview' = {
@@ -21,7 +25,22 @@ resource office365Connection 'Microsoft.Web/connectorGateways/connections@2026-0
   }
 }
 
-// Connector Namespace system MI -> Office 365 connection (needed to poll triggers).
+// Function App MI -> Office 365 connection (needed for Poll receive and acknowledge calls).
+resource office365ConnectionFunctionAppAccessPolicy 'Microsoft.Web/connectorGateways/connections/accessPolicies@2026-05-01-preview' = {
+  parent: office365Connection
+  name: 'functionapp-msi'
+  properties: {
+    principal: {
+      type: 'ActiveDirectory'
+      identity: {
+        objectId: functionAppPrincipalId
+        tenantId: tenantId
+      }
+    }
+  }
+}
+
+// Connector Namespace system MI -> Office 365 connection (needed to run the connector trigger).
 resource office365ConnectionNamespaceAccessPolicy 'Microsoft.Web/connectorGateways/connections/accessPolicies@2026-05-01-preview' = {
   parent: office365Connection
   name: 'connector-namespace-msi'
@@ -30,6 +49,21 @@ resource office365ConnectionNamespaceAccessPolicy 'Microsoft.Web/connectorGatewa
       type: 'ActiveDirectory'
       identity: {
         objectId: connectorNamespace.identity.principalId
+        tenantId: tenantId
+      }
+    }
+  }
+}
+
+// Developer -> Office 365 connection (needed for local Poll debugging).
+resource office365ConnectionUserAccessPolicy 'Microsoft.Web/connectorGateways/connections/accessPolicies@2026-05-01-preview' = if (!empty(userPrincipalId)) {
+  parent: office365Connection
+  name: 'dev-user'
+  properties: {
+    principal: {
+      type: 'ActiveDirectory'
+      identity: {
+        objectId: userPrincipalId
         tenantId: tenantId
       }
     }

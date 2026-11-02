@@ -1,0 +1,16 @@
+{
+  "functionName": "OnSharepointNewFile",
+  "connectorName": "sharepointonline",
+  "operationName": "GetOnNewFileItems",
+  "description": "When a file is created (properties only)",
+  "parameters": [
+    {
+      "name": "dataset",
+      "azdOutput": "sharepointSiteUrl"
+    },
+    {
+      "name": "table",
+      "azdOutput": "sharepointLibraryName"
+    }
+  ]
+}

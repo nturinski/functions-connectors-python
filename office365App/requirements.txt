@@ -1,3 +1,2 @@
 # Azure Functions dependencies
-azure-functions>=2.2.0b4
-azurefunctions-extensions-connectors
+azure-functions>=2.4.0b1

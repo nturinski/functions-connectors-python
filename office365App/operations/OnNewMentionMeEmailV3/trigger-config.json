@@ -1,0 +1,12 @@
+{
+  "functionName": "OnNewMentionMeEmail",
+  "connectorName": "office365",
+  "operationName": "OnNewMentionMeEmailV3",
+  "description": "When a new email mentioning me arrives",
+  "parameters": [
+    {
+      "name": "folderPath",
+      "value": "Inbox"
+    }
+  ]
+}

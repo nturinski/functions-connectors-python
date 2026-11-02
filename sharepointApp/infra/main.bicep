@@ -17,7 +17,7 @@ param location string
 param connectorNamespaceLocation string = 'westcentralus'
 
 metadata name = 'Azure Functions SharePoint Online Connector Trigger (Python)'
-metadata description = 'Connector Namespace trigger sample using system key authentication on the callback URL.'
+metadata description = 'Connector Namespace Poll trigger sample using managed identity.'
 
 @description('Id of the user identity to be used for testing and debugging. Granted access to the sharepointonline connection so the same code can be debugged locally with `az login`.')
 @metadata({
@@ -191,7 +191,8 @@ var allAppSettings = {
   APPLICATIONINSIGHTS_AUTHENTICATION_STRING: 'ClientId=${funcUserAssignedIdentity.outputs.clientId};Authorization=AAD'
   APPLICATIONINSIGHTS_CONNECTION_STRING: monitoring.outputs.connectionString
   AZURE_CLIENT_ID: funcUserAssignedIdentity.outputs.clientId
-  SHAREPOINTONLINE_CONNECTION_RUNTIME_URL: connectorNamespace.outputs.sharepointConnectionRuntimeUrl
+  ConnectorNamespace__credential: 'managedidentity'
+  ConnectorNamespace__clientId: funcUserAssignedIdentity.outputs.clientId
 }
 
 module functionApp 'br/public:avm/res/web/site:0.22.0' = {

@@ -1,42 +1,63 @@
-# SharePoint Online Triggers (Python)
+# SharePoint Online Poll triggers (Python)
 
-Azure Functions sample app demonstrating **SharePoint Online** connector triggers using the
-`azurefunctions-extensions-connectors` package with the Functions connector trigger extension.
+Azure Functions project-template source for SharePoint Online Connector Namespace
+triggers using host-pull **Poll** delivery.
 
-| Function | Connector operation | Description |
+## Operation ownership
+
+Each selectable operation owns its complete source and deployment descriptor:
+
+| Owned path | Function | Connector operation |
 | --- | --- | --- |
-| `OnSharepointNewFile` | [`GetOnNewFileItems`](https://learn.microsoft.com/en-us/connectors/sharepointonline/#when-a-file-is-created-(properties-only)) | Fires when a new file is created in a SharePoint library |
-| `OnSharepointUpdatedFile` | [`GetOnUpdatedFileItems`](https://learn.microsoft.com/en-us/connectors/sharepointonline/#when-a-file-is-created-or-modified-(properties-only)) | Fires when a file is modified in a SharePoint library |
+| `operations/GetOnNewFileItems` | `OnSharepointNewFile` | `GetOnNewFileItems` |
+| `operations/GetOnUpdatedFileItems` | `OnSharepointUpdatedFile` | `GetOnUpdatedFileItems` |
+
+The project-template materializer retains one whole operation directory and removes
+its sibling. If you use this repository directly, delete the unselected
+`operations/<operationId>` directory before running or deploying the app.
+`function_app.py` and the post-deploy scripts intentionally fail unless exactly one
+`trigger-config.json` remains.
+
+The retained operation registers one `typing.List[str]` Poll binding with:
+
+- `connection="ConnectorNamespace"`
+- `trigger_config_name="%ConnectorTriggerConfigName%"`
+- `cardinality=func.Cardinality.MANY`
+- `max_batch_size=4`
+- `target_pending_event_threshold=16`
+
+Each string is one raw Poll event. The shared normalizer unwraps
+`outputs.body`, including `{ "value": [...] }` collection bodies, without logging
+file metadata.
 
 ## Prerequisites
 
 - [Azure Developer CLI (`azd`)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
-- [Azure CLI (`az`)](https://learn.microsoft.com/cli/azure/install-azure-cli) ≥ 2.75.0
+- [Azure CLI (`az`)](https://learn.microsoft.com/cli/azure/install-azure-cli) 2.75.0 or later
 - [Python 3.13](https://www.python.org/downloads/)
-- [`connector-namespace` Azure CLI extension](https://github.com/Azure/Connectors/tree/main/public-preview/connector-namespace-cli) — install with:
+- [`connector-namespace` Azure CLI extension](https://github.com/Azure/Connectors/tree/main/public-preview/connector-namespace-cli)
 
-  ```bash
-  # Bash
-  curl -fsSL https://aka.ms/connector-namespace-cli-install | sh
-  ```
+Install the Connector Namespace extension with one of:
 
-  or
+```bash
+curl -fsSL https://aka.ms/connector-namespace-cli-install | sh
+```
 
-  ```pwsh
-  # PowerShell
-  irm https://aka.ms/connector-namespace-cli-install-ps | iex
-  ```
+```pwsh
+irm https://aka.ms/connector-namespace-cli-install-ps | iex
+```
 
-## Deploy to Azure
+## Deploy
 
-Before running `azd up`, set the SharePoint site URL:
+Set the SharePoint operation inputs:
 
 ```bash
 azd env set SHAREPOINT_SITE_URL "https://contoso.sharepoint.com/sites/mysite"
-azd env set SHAREPOINT_LIBRARY_NAME "Documents"  # optional, defaults to "Documents"
+azd env set SHAREPOINT_LIBRARY_NAME "Documents"
 ```
 
-Then deploy:
+The retained descriptor resolves those `azd` outputs into the operation's
+`dataset` and `table` parameters. After retaining one operation:
 
 ```bash
 cd sharepointApp
@@ -45,40 +66,49 @@ az login
 azd up
 ```
 
-### Resources provisioned
+The post-deploy hook:
 
-| Resource | Purpose |
-| --- | --- |
-| **Resource Group** | Contains all resources |
-| **Flex Consumption Function App** (Python 3.13) | Hosts the connector trigger functions |
-| **App Service Plan** (FC1) | Flex Consumption plan |
-| **User-Assigned Managed Identity** | Identity for the function app |
-| **Storage Account** | Deployment artifacts and function runtime state |
-| **Log Analytics Workspace** | Backing store for Application Insights |
-| **Application Insights** | Telemetry and logging |
-| **Connector Namespace** | Hosts the SharePoint connection and trigger configs |
-| **SharePoint Online Connection** (OAuth) | Authenticates to SharePoint — requires interactive consent during post-deploy |
+1. authorizes the SharePoint connection through OAuth consent;
+2. reads the retained operation descriptor and resolves its `azdOutput` values;
+3. creates or updates one enabled Poll Trigger Config through the
+   `2026-05-01-preview` ARM API;
+4. derives the gateway-level polling endpoint returned by the service; and
+5. sets `ConnectorNamespace__pollingEndpoint` and
+   `ConnectorTriggerConfigName` on the Function App.
 
-After provisioning, a post-deploy hook authorizes the SharePoint connection and creates trigger configs. To re-run:
+It does not create a callback URL, webhook notification, or callback key.
+Re-run only this setup with:
 
 ```bash
 azd hooks run postdeploy
 ```
 
-## Verify
+The deployment grants the Connector Namespace identity permission to run the
+connector trigger and grants the Function App identity permission to receive and
+acknowledge Poll events. The deployer also receives connection access for local
+debugging.
 
-After `azd up`, open the [Connector Namespaces portal](https://connectors.azure.com/) to verify:
+## Run locally
 
-- One **Connection** (SharePoint Online) with status **Connected**
-- Trigger configs in **Enabled** state
-
-Create or modify a file in the configured SharePoint library to fire the trigger. Tail logs with:
+Install dependencies and replace the placeholders in `local.settings.json` with
+the gateway-level Poll endpoint and Trigger Config name produced by deployment:
 
 ```bash
-az functionapp log tail -g <resourceGroupName> -n <functionAppName>
+python -m pip install -r requirements.txt
+func start
 ```
+
+For local development, omit `ConnectorNamespace__credential`; the extension uses
+the signed-in developer credential. Never commit a real polling endpoint or
+credential.
+
+## Verify
+
+In Connector Namespace, verify that the retained Trigger Config is enabled. Create
+or modify a file, according to the selected operation, then inspect the Function
+App logs for event and item counts.
 
 ## More
 
-- [Operations to Functions Signature Mapping](https://github.com/Azure/azure-functions-connector-extension/blob/main/docs/operations-functions-match.md)
-- [SharePoint Online connector reference](https://learn.microsoft.com/en-us/connectors/sharepointonline/)
+- [Connector trigger configuration](https://github.com/Azure/azure-functions-connector-extension/blob/main/docs/connector-trigger-configuration.md)
+- [SharePoint Online connector reference](https://learn.microsoft.com/connectors/sharepointonline/)

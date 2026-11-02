@@ -479,6 +479,7 @@ __blobstorage__/
 __queuestorage__/
 
 # Test / coverage
+.ow-*/
 .pytest_cache/
 .coverage
 .coverage.*

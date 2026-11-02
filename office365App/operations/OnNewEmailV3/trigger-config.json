@@ -1,0 +1,16 @@
+{
+  "functionName": "OnNewEmail",
+  "connectorName": "office365",
+  "operationName": "OnNewEmailV3",
+  "description": "When a new email arrives",
+  "parameters": [
+    {
+      "name": "folderPath",
+      "value": "Inbox"
+    },
+    {
+      "name": "importance",
+      "value": "High"
+    }
+  ]
+}
