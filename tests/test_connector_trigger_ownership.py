@@ -320,24 +320,25 @@ class ConnectorTriggerOwnershipTests(unittest.TestCase):
 
     def test_sparse_materialization_registers_only_selected_operation(self):
         for app_name, mappings in MAPPINGS.items():
-            operation_id, function_name = mappings[0]
-            with tempfile.TemporaryDirectory(dir=ROOT / "tests") as temp_dir:
-                materialized = Path(temp_dir) / app_name
-                operation_dir = materialized / "operations" / operation_id
-                operation_dir.mkdir(parents=True)
-                shutil.copy2(ROOT / app_name / "function_app.py", materialized / "function_app.py")
-                for artifact_name in ("function.py", "trigger-config.json"):
-                    shutil.copy2(
-                        ROOT / app_name / "operations" / operation_id / artifact_name,
-                        operation_dir / artifact_name,
-                    )
-                with fake_azure_runtime():
-                    module = load_materialized_app(materialized)
-                self.assertEqual(len(module.app.blueprints), 1)
-                registered_functions = module.app.blueprints[0].functions
-                self.assertEqual(len(registered_functions), 1)
-                self.assertEqual(registered_functions[0]._fake_function_name, function_name)
-                self.assertTrue(hasattr(registered_functions[0], "_fake_connector_trigger"))
+            for operation_id, function_name in mappings:
+                with self.subTest(app_name=app_name, operation_id=operation_id):
+                    with tempfile.TemporaryDirectory(dir=ROOT / "tests") as temp_dir:
+                        materialized = Path(temp_dir) / app_name
+                        operation_dir = materialized / "operations" / operation_id
+                        operation_dir.mkdir(parents=True)
+                        shutil.copy2(ROOT / app_name / "function_app.py", materialized / "function_app.py")
+                        for artifact_name in ("function.py", "trigger-config.json"):
+                            shutil.copy2(
+                                ROOT / app_name / "operations" / operation_id / artifact_name,
+                                operation_dir / artifact_name,
+                            )
+                        with fake_azure_runtime():
+                            module = load_materialized_app(materialized)
+                        self.assertEqual(len(module.app.blueprints), 1)
+                        registered_functions = module.app.blueprints[0].functions
+                        self.assertEqual(len(registered_functions), 1)
+                        self.assertEqual(registered_functions[0]._fake_function_name, function_name)
+                        self.assertTrue(hasattr(registered_functions[0], "_fake_connector_trigger"))
 
     def test_loader_rejects_empty_operation_set(self):
         for app_name in MAPPINGS:
