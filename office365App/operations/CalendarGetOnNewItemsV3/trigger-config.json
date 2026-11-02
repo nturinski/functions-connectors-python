@@ -1,0 +1,12 @@
+{
+  "connectorName": "office365",
+  "operationId": "CalendarGetOnNewItemsV3",
+  "functionName": "OnNewCalendarEvent",
+  "description": "When a new calendar event is created",
+  "parameters": [
+    {
+      "name": "table",
+      "value": "Calendar"
+    }
+  ]
+}

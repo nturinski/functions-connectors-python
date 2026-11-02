@@ -3,13 +3,23 @@
 Azure Functions sample app demonstrating **Office 365 Outlook** connector triggers using the
 `azurefunctions-extensions-connectors` package with the Functions connector trigger extension.
 
-| Function | Connector operation | Description |
+## Operation ownership
+
+Each supported polling operation owns one directory under `operations/<operationId>/`. The directory contains exactly `function.py` and `trigger-config.json`; it has no `__init__.py`.
+
+| Operation directory | Function | Description |
 | --- | --- | --- |
-| `OnNewEmail` | [`OnNewEmailV3`](https://learn.microsoft.com/en-us/connectors/office365/#when-a-new-email-arrives-(v3)) | Fires when a new email arrives |
-| `OnFlaggedEmail` | [`OnFlaggedEmailV4`](https://learn.microsoft.com/en-us/connectors/office365/#when-an-email-is-flagged-(v4)) | Fires when an email is flagged |
-| `OnNewMentionMeEmail` | [`OnNewMentionMeEmailV3`](https://learn.microsoft.com/en-us/connectors/office365/#when-a-new-email-mentioning-me-arrives-(v3)) | Fires when a new email mentions the authenticated user |
-| `OnNewCalendarEvent` | [`CalendarGetOnNewItemsV3`](https://learn.microsoft.com/en-us/connectors/office365/#when-a-new-event-is-created-(v3)) | Fires when a new calendar event is created |
-| `OnUpcomingEvent` | [`OnUpcomingEventsV3`](https://learn.microsoft.com/en-us/connectors/office365/#when-an-upcoming-event-is-starting-soon-(v3)) | Fires when an upcoming calendar event is starting soon |
+| `operations/OnNewEmailV3/` | `OnNewEmail` | Fires when a new email arrives |
+| `operations/OnFlaggedEmailV4/` | `OnFlaggedEmail` | Fires when an email is flagged |
+| `operations/OnNewMentionMeEmailV3/` | `OnNewMentionMeEmail` | Fires when a new email mentions the authenticated user |
+| `operations/CalendarGetOnNewItemsV3/` | `OnNewCalendarEvent` | Fires when a new calendar event is created |
+| `operations/OnUpcomingEventsV3/` | `OnUpcomingEvent` | Fires when an upcoming calendar event is starting soon |
+
+The shared `function_app.py` dynamically discovers sorted `operations/*/function.py` files with `importlib.util.spec_from_file_location`, requires each exported `blueprint`, and registers it with `FunctionApp`. A full checkout loads all five functions. A downstream or sparse template copy can retain one or more operation directories and the loader will register only those functions.
+
+The post-deploy scripts discover the retained `trigger-config.json` files in the same deterministic order. Each config contains the connector name, operation ID, function name, description, and parameters. The scripts validate every config, resolve `valueFrom` entries from `azd env get-values --output json`, and delete/recreate only retained triggers. They preserve the Connector Namespace OAuth/consent flow and polling metadata (`recurrenceFrequency:Minute` and `recurrenceInterval:'5'`).
+
+The root [`template-metadata.json`](../template-metadata.json) records the exact operation-to-function mapping and one-element POSIX `ownedPaths` contract for downstream copying. Template tooling must copy the shared loader/scripts and the selected `operations/<operationId>/` directories together with the metadata contract.
 
 > [!CAUTION]
 > **Personal data.** This sample writes email/calendar content to Blob Storage for demonstration only. Restrict access to the resources to appropriate users only, and run `azd down --purge` when done.
@@ -17,9 +27,9 @@ Azure Functions sample app demonstrating **Office 365 Outlook** connector trigge
 ## Prerequisites
 
 - [Azure Developer CLI (`azd`)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
-- [Azure CLI (`az`)](https://learn.microsoft.com/cli/azure/install-azure-cli) ≥ 2.75.0
+- [Azure CLI (`az`)](https://learn.microsoft.com/cli/azure/install-azure-cli) >= 2.75.0
 - [Python 3.13](https://www.python.org/downloads/)
-- [`connector-namespace` Azure CLI extension](https://github.com/Azure/Connectors/tree/main/public-preview/connector-namespace-cli) — install with:
+- [`connector-namespace` Azure CLI extension](https://github.com/Azure/Connectors/tree/main/public-preview/connector-namespace-cli) - install with:
 
   ```bash
   # Bash
@@ -47,16 +57,16 @@ azd up
 | Resource | Purpose |
 | --- | --- |
 | **Resource Group** | Contains all resources |
-| **Flex Consumption Function App** (Python 3.13) | Hosts the 5 connector trigger functions |
+| **Flex Consumption Function App** (Python 3.13) | Hosts all retained connector trigger functions |
 | **App Service Plan** (FC1) | Flex Consumption plan |
 | **User-Assigned Managed Identity** | Identity for the function app |
 | **Storage Account** | Deployment artifacts, function runtime state, and trigger payload output |
 | **Log Analytics Workspace** | Backing store for Application Insights |
 | **Application Insights** | Telemetry and logging |
-| **Connector Namespace** | Hosts the Office 365 connection and trigger configs |
-| **Office 365 Outlook Connection** (OAuth) | Authenticates to Office 365 — requires interactive consent during post-deploy |
+| **Connector Namespace** | Hosts the Office 365 connection and retained trigger configs |
+| **Office 365 Outlook Connection** (OAuth) | Authenticates to Office 365 - requires interactive consent during post-deploy |
 
-After provisioning, a post-deploy hook authorizes the Office 365 connection and creates trigger configs. To re-run:
+After provisioning, a post-deploy hook authorizes the Office 365 connection and creates trigger configs for every retained operation. To re-run:
 
 ```bash
 azd hooks run postdeploy
@@ -64,25 +74,30 @@ azd hooks run postdeploy
 
 ### Trigger configuration
 
-The post-deploy script configures the `OnNewEmail` trigger with these defaults:
+The checked-in config for `operations/OnNewEmailV3/trigger-config.json` preserves these defaults:
 
 | Setting | Value |
 | ------- | ----- |
-| `operationName` | `OnNewEmailV3` |
+| `operationId` | `OnNewEmailV3` |
+| `functionName` | `OnNewEmail` |
 | `folderPath` | `Inbox` |
 | `importance` | `High` |
 
-Edit `infra/scripts/postdeploy.ps1` (or `.sh`) to change folder, importance, or add trigger configs for the other functions.
+The other operation directories contain their own operation-specific config. To select a smaller downstream sample, retain the shared app files and only the desired operation directories; do not hardcode trigger lists in either post-deploy script.
 
 ## Rich SDK Types
 
-This sample uses the `azurefunctions-extensions-connectors` package which provides rich type hints:
+Each Office 365 operation keeps the existing rich SDK type hints in its operation-owned `function.py`. For example:
 
 ```python
+import azure.functions as func
 import azurefunctions.extensions.connectors.office365 as office365
 from typing import List
 
-@app.connector_trigger(arg_name="emails")
+blueprint = func.Blueprint()
+
+@blueprint.function_name(name="OnNewEmail")
+@blueprint.connector_trigger(arg_name="emails")
 def on_new_email(emails: List[office365.ClientReceiveMessage]) -> None:
     for email in emails:
         print(f"Subject: {email.subject}")
@@ -94,9 +109,9 @@ def on_new_email(emails: List[office365.ClientReceiveMessage]) -> None:
 After `azd up`, open the [Connector Namespaces portal](https://connectors.azure.com/) to verify:
 
 - One **Connection** (Office 365 Outlook) with status **Connected**
-- Trigger configs in **Enabled** state
+- One enabled trigger config for every retained operation directory
 
-Send yourself a high-importance email to fire the trigger. Tail logs with:
+Send yourself a high-importance email to fire the new-email trigger. Tail logs with:
 
 ```bash
 az functionapp log tail -g <resourceGroupName> -n <functionAppName>
@@ -106,4 +121,4 @@ az functionapp log tail -g <resourceGroupName> -n <functionAppName>
 
 - [Operations to Functions Signature Mapping](https://github.com/Azure/azure-functions-connector-extension/blob/main/docs/operations-functions-match.md)
 - [Office 365 Outlook connector reference](https://learn.microsoft.com/en-us/connectors/office365/)
-- [Built-in auth sample](https://github.com/Azure-Samples/functions-connectors-net-builtinauth) — secretless authentication using managed identity + Easy Auth.
+- [Built-in auth sample](https://github.com/Azure-Samples/functions-connectors-net-builtinauth) - secretless authentication using managed identity + Easy Auth.

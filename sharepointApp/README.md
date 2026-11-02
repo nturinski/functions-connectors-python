@@ -1,19 +1,29 @@
 # SharePoint Online Triggers (Python)
 
 Azure Functions sample app demonstrating **SharePoint Online** connector triggers using the
-`azurefunctions-extensions-connectors` package with the Functions connector trigger extension.
+`azure-functions` connector trigger extension.
 
-| Function | Connector operation | Description |
+## Operation ownership
+
+Each supported polling operation owns one directory under `operations/<operationId>/`. The directory contains exactly `function.py` and `trigger-config.json`; it has no `__init__.py`.
+
+| Operation directory | Function | Description |
 | --- | --- | --- |
-| `OnSharepointNewFile` | [`GetOnNewFileItems`](https://learn.microsoft.com/en-us/connectors/sharepointonline/#when-a-file-is-created-(properties-only)) | Fires when a new file is created in a SharePoint library |
-| `OnSharepointUpdatedFile` | [`GetOnUpdatedFileItems`](https://learn.microsoft.com/en-us/connectors/sharepointonline/#when-a-file-is-created-or-modified-(properties-only)) | Fires when a file is modified in a SharePoint library |
+| `operations/GetOnNewFileItems/` | `OnSharepointNewFile` | Fires when a new file is created in a SharePoint library |
+| `operations/GetOnUpdatedFileItems/` | `OnSharepointUpdatedFile` | Fires when a file is modified in a SharePoint library |
+
+The shared `function_app.py` dynamically discovers sorted `operations/*/function.py` files with `importlib.util.spec_from_file_location`, requires each exported `blueprint`, and registers it with `FunctionApp`. A full checkout loads both functions. A downstream or sparse template copy can retain one operation directory and the loader will register only that function.
+
+The post-deploy scripts discover the retained `trigger-config.json` files in deterministic order. SharePoint parameters use `dataset` from `sharepointSiteUrl` and `table` from `sharepointLibraryName`; the scripts resolve those `valueFrom` names through `azd env get-values --output json`. They validate configs, delete/recreate only retained triggers, preserve the OAuth/consent flow, and keep `recurrenceFrequency:Minute` with `recurrenceInterval:'5'`.
+
+The root [`template-metadata.json`](../template-metadata.json) records the exact operation-to-function mapping and one-element POSIX `ownedPaths` contract for downstream copying. Template tooling must copy the shared loader/scripts and the selected `operations/<operationId>/` directories together with the metadata contract.
 
 ## Prerequisites
 
 - [Azure Developer CLI (`azd`)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
-- [Azure CLI (`az`)](https://learn.microsoft.com/cli/azure/install-azure-cli) ≥ 2.75.0
+- [Azure CLI (`az`)](https://learn.microsoft.com/cli/azure/install-azure-cli) >= 2.75.0
 - [Python 3.13](https://www.python.org/downloads/)
-- [`connector-namespace` Azure CLI extension](https://github.com/Azure/Connectors/tree/main/public-preview/connector-namespace-cli) — install with:
+- [`connector-namespace` Azure CLI extension](https://github.com/Azure/Connectors/tree/main/public-preview/connector-namespace-cli) - install with:
 
   ```bash
   # Bash
@@ -50,16 +60,16 @@ azd up
 | Resource | Purpose |
 | --- | --- |
 | **Resource Group** | Contains all resources |
-| **Flex Consumption Function App** (Python 3.13) | Hosts the connector trigger functions |
+| **Flex Consumption Function App** (Python 3.13) | Hosts all retained connector trigger functions |
 | **App Service Plan** (FC1) | Flex Consumption plan |
 | **User-Assigned Managed Identity** | Identity for the function app |
 | **Storage Account** | Deployment artifacts and function runtime state |
 | **Log Analytics Workspace** | Backing store for Application Insights |
 | **Application Insights** | Telemetry and logging |
-| **Connector Namespace** | Hosts the SharePoint connection and trigger configs |
-| **SharePoint Online Connection** (OAuth) | Authenticates to SharePoint — requires interactive consent during post-deploy |
+| **Connector Namespace** | Hosts the SharePoint connection and retained trigger configs |
+| **SharePoint Online Connection** (OAuth) | Authenticates to SharePoint - requires interactive consent during post-deploy |
 
-After provisioning, a post-deploy hook authorizes the SharePoint connection and creates trigger configs. To re-run:
+After provisioning, a post-deploy hook authorizes the SharePoint connection and creates trigger configs for every retained operation. To re-run:
 
 ```bash
 azd hooks run postdeploy
@@ -70,9 +80,9 @@ azd hooks run postdeploy
 After `azd up`, open the [Connector Namespaces portal](https://connectors.azure.com/) to verify:
 
 - One **Connection** (SharePoint Online) with status **Connected**
-- Trigger configs in **Enabled** state
+- One enabled trigger config for every retained operation directory
 
-Create or modify a file in the configured SharePoint library to fire the trigger. Tail logs with:
+Create or modify a file in the configured SharePoint library to fire the corresponding trigger. Tail logs with:
 
 ```bash
 az functionapp log tail -g <resourceGroupName> -n <functionAppName>

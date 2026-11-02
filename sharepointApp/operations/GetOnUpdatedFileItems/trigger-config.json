@@ -1,0 +1,16 @@
+{
+  "connectorName": "sharepointonline",
+  "operationId": "GetOnUpdatedFileItems",
+  "functionName": "OnSharepointUpdatedFile",
+  "description": "When a file is created or modified (properties only)",
+  "parameters": [
+    {
+      "name": "dataset",
+      "valueFrom": "sharepointSiteUrl"
+    },
+    {
+      "name": "table",
+      "valueFrom": "sharepointLibraryName"
+    }
+  ]
+}

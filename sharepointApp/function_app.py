@@ -1,38 +1,25 @@
 # Copyright (c) .NET Foundation. All rights reserved.
 # Licensed under the MIT License.
 
+import importlib.util
+from pathlib import Path
+
 import azure.functions as func
-import json
-import logging
+
 
 app = func.FunctionApp()
+operations_dir = Path(__file__).with_name("operations")
 
+for function_path in sorted(operations_dir.glob("*/function.py")):
+    module_name = f"_connector_operation_{function_path.parent.name}"
+    spec = importlib.util.spec_from_file_location(module_name, function_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load connector operation module: {function_path}")
 
-@app.function_name(name="OnSharepointNewFile")
-@app.connector_trigger(arg_name="payload")
-def on_sharepoint_new_file(payload: str) -> None:
-    """Triggered when a new file is created in SharePoint Online."""
-    logging.info("OnSharepointNewFile trigger received.")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    blueprint = getattr(module, "blueprint", None)
+    if blueprint is None:
+        raise RuntimeError(f"Connector operation module has no blueprint: {function_path}")
 
-    data = json.loads(payload)
-    files = data.get("body", {}).get("value", [])
-
-    for file in files:
-        logging.info(f"Name: '{file.get('Name')}'.")
-        logging.info(f"Path: '{file.get('Path')}'.")
-        logging.info(f"Size: '{file.get('Size')}'.")
-
-
-@app.function_name(name="OnSharepointUpdatedFile")
-@app.connector_trigger(arg_name="payload")
-def on_sharepoint_updated_file(payload: str) -> None:
-    """Triggered when a file is updated in SharePoint Online."""
-    logging.info("OnSharepointUpdatedFile trigger received.")
-
-    data = json.loads(payload)
-    files = data.get("body", {}).get("value", [])
-
-    for file in files:
-        logging.info(f"Name: '{file.get('Name')}'.")
-        logging.info(f"Path: '{file.get('Path')}'.")
-        logging.info(f"LastModified: '{file.get('LastModified')}'.")
+    app.register_functions(blueprint)

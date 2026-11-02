@@ -1,0 +1,67 @@
+{
+  "templates": [
+    {
+      "folderPath": "office365App",
+      "connectorTrigger": {
+        "operations": [
+          {
+            "operationId": "OnNewEmailV3",
+            "functionName": "OnNewEmail",
+            "ownedPaths": [
+              "operations/OnNewEmailV3"
+            ]
+          },
+          {
+            "operationId": "OnFlaggedEmailV4",
+            "functionName": "OnFlaggedEmail",
+            "ownedPaths": [
+              "operations/OnFlaggedEmailV4"
+            ]
+          },
+          {
+            "operationId": "OnNewMentionMeEmailV3",
+            "functionName": "OnNewMentionMeEmail",
+            "ownedPaths": [
+              "operations/OnNewMentionMeEmailV3"
+            ]
+          },
+          {
+            "operationId": "CalendarGetOnNewItemsV3",
+            "functionName": "OnNewCalendarEvent",
+            "ownedPaths": [
+              "operations/CalendarGetOnNewItemsV3"
+            ]
+          },
+          {
+            "operationId": "OnUpcomingEventsV3",
+            "functionName": "OnUpcomingEvent",
+            "ownedPaths": [
+              "operations/OnUpcomingEventsV3"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "folderPath": "sharepointApp",
+      "connectorTrigger": {
+        "operations": [
+          {
+            "operationId": "GetOnNewFileItems",
+            "functionName": "OnSharepointNewFile",
+            "ownedPaths": [
+              "operations/GetOnNewFileItems"
+            ]
+          },
+          {
+            "operationId": "GetOnUpdatedFileItems",
+            "functionName": "OnSharepointUpdatedFile",
+            "ownedPaths": [
+              "operations/GetOnUpdatedFileItems"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

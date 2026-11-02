@@ -57,6 +57,16 @@ Eight self-contained Azure Functions apps, each deployable with `azd up`:
 | [`azure-functions`](https://pypi.org/project/azure-functions/) | The Functions Python worker. Provides `@app.connector_trigger` decorator and the broader bindings surface. |
 | [`azurefunctions-extensions-connectors`](https://pypi.org/project/azurefunctions-extensions-connectors/) | Rich SDK types for Office 365 connector triggers (`ClientReceiveMessage`, `GraphClientReceiveMessage`, `GraphCalendarEventClientReceive`). Used by `office365App`. |
 
+## Operation-owned connector triggers
+
+`office365App` and `sharepointApp` keep each connector trigger as an independently owned operation. Every retained operation lives in `operations/<operationId>/` and contains exactly `function.py` and `trigger-config.json`; the operation directory intentionally has no `__init__.py`.
+
+The shared `function_app.py` is a compatibility loader. It discovers `operations/*/function.py` in sorted order, imports each exported `blueprint`, and registers it with the Functions app. A full checkout therefore loads all five Office 365 triggers and both SharePoint triggers. Downstream template consumers can retain only the operation directories they need: the same loader then registers only those retained functions.
+
+The post-deploy hooks use the retained `trigger-config.json` files as their source of truth. They validate and sort the configs, resolve any `valueFrom` names through `azd env get-values --output json`, delete/recreate only the retained Connector Namespace triggers, and keep the existing OAuth consent flow and five-minute polling metadata. Removing an operation directory from a downstream copy removes that function and its post-deploy trigger without changing Bicep or `azure.yaml` behavior.
+
+Root `template-metadata.json` is the machine-readable downstream copy contract. Its `connectorTrigger.operations[]` entries map each connector operation to its function name and one-element POSIX `ownedPaths` value. Template tooling must copy the shared app files plus the selected owned paths and preserve the metadata entry when materializing a sparse template.
+
 ## What each sample shows
 
 ### `azureblobApp` — Azure Blob
@@ -156,7 +166,7 @@ def on_azure_blob_updated_file(payload: str) -> None:
 ## Run a sample locally
 
 ```bash
-cd <connectorAppPython>
+cd <connectorApp>
 pip install -r requirements.txt
 func start
 ```
@@ -166,7 +176,7 @@ Update `local.settings.json` with the runtime URL and access token for your conn
 ## Deploy a sample to Azure
 
 ```bash
-cd <connectorAppPython>
+cd <connectorApp>
 azd auth login
 azd up
 ```
@@ -191,30 +201,35 @@ azd provision   # re-runs the Bicep to push the new app settings
 
 ```
 functions-connectors-python/
-├── README.md
-├── azureblobAppPython/
-├── kustoAppPython/
-├── office365AppPython/
-├── onedriveAppPython/
-├── sharepointAppPython/
-├── teamsAppPython/
-└── genericAppPython/
+- README.md
+- template-metadata.json
+- azureblobApp/
+- dataverseApp/
+- kustoApp/
+- office365App/
+- onedriveApp/
+- sharepointApp/
+- teamsApp/
+- genericApp/
 ```
 
-Each app folder is self-contained:
+Each app folder is self-contained. For the two operation-owned apps, copy `function_app.py`, the post-deploy scripts, and the selected `operations/<operationId>/` directories together; do not copy only a function body without its config:
 
 ```
-<connectorAppPython>/
-├── function_app.py             # Python v2 programming model entry point
-├── requirements.txt            # Python dependencies
-├── infra/
-│   ├── main.bicep              # subscription-scope: creates RG, delegates to resources.bicep
-│   ├── resources.bicep         # Storage + App Insights + Function App
-│   └── main.parameters.json    # ${AZURE_ENV_NAME}, ${AZURE_LOCATION}, ${CONNECTOR_RUNTIME_URL=}, ${CONNECTOR_TOKEN=}
-├── azure.yaml                  # azd service definition + prepackage hook
-├── host.json                   # Preview extension bundle + logging
-├── local.settings.json         # placeholders for runtime URL + token
-└── README.md
+<connectorApp>/
+- function_app.py             # shared Python v2 loader for operation blueprints
+- operations/                 # operation-owned files in office365App/sharepointApp
+  - <operationId>/
+    - function.py             # one blueprint function and connector trigger
+    - trigger-config.json     # one post-deploy trigger contract
+- requirements.txt            # Python dependencies
+- infra/
+  - main.bicep               # subscription-scope deployment entry point
+  - main.parameters.json     # deployment parameters
+- azure.yaml                 # azd service definition and hooks
+- host.json                  # Functions runtime settings
+- local.settings.json        # local runtime placeholders
+- README.md
 ```
 
 ## Related repos
